@@ -1,3 +1,11 @@
+/**
+ * matching_engine.cpp
+ * * A simple Order Book and Trade Matching Engine.
+ * Supports reading order data, summarizing statistics, tracking user 
+ * order volumes, and running a live trade matching engine based on 
+ * price-time priority.
+ */
+
 #include <bits/stdc++.h>
 #include <fstream>
 using namespace std;
@@ -10,6 +18,10 @@ struct Order {
     double price;
 };
 
+/*
+ * Represents an Order Book for a specific financial instrument (ticker),
+ * maintaining separate lists for open BUY and SELL orders.
+ */
 struct Book {
     string ticker;
     vector<Order> buyOrders;
@@ -19,9 +31,10 @@ struct Book {
 
 // ─── Comparators ────────────────────────────────────────────────────────────
 
+// Sorts books by total order volume (descending), then by ticker (alphabetical)
 bool byTicker(Book& a, Book& b) {
     if (a.ticker == b.ticker)
-        return (a.buyOrders.size() + a.sellOrders.size()) 
+        return (a.buyOrders.size() + a.sellOrders.size()) > 
                (b.buyOrders.size() + b.sellOrders.size());
     return a.ticker < b.ticker;
 }
@@ -37,6 +50,7 @@ struct ParsedOrder {
     double price;
 };
 
+// Parses a comma-separated (CSV) string into a ParsedOrder object
 ParsedOrder parseCSVLine(const string& line) {
     stringstream ss(line);
     string type, user, ticker, qty_str, price_str;
@@ -48,6 +62,7 @@ ParsedOrder parseCSVLine(const string& line) {
     return { type, user, ticker, stoi(qty_str), stod(price_str) };
 }
 
+// Parses a space-separated string into a ParsedOrder object
 ParsedOrder parseSpaceLine(const string& line) {
     stringstream ss(line);
     string type, user, ticker, qty_str, price_str;
@@ -67,6 +82,10 @@ int findBook(vector<Book>& books, const string& ticker) {
     return -1;
 }
 
+/*
+ * Loads a static order book state from a given CSV file path,
+ * categorizing orders into their respective BUY or SELL queues.
+ */
 vector<Book> loadOrderBook(const string& filepath) {
     ifstream infile(filepath);
     if (!infile.is_open()) {
@@ -96,9 +115,9 @@ vector<Book> loadOrderBook(const string& filepath) {
 // ─── Features ───────────────────────────────────────────────────────────────
 
 /*
- * Feature 1: Order Book Summary
- * Reads orders from a CSV file and prints the number of
- * unique order entries per ticker, sorted alphabetically.
+ * Feature 1 (P1): Order Book Summary
+ * Prints the total number of unique order entries for each ticker, 
+ * sorted alphabetically.
  */
 void showOrderBookSummary() {
     string filepath;
@@ -124,9 +143,9 @@ void showOrderBookSummary() {
 }
 
 /*
- * Feature 2: User Order Volume
- * Reads orders from a CSV file and prints the total quantity
- * ordered by each queried user.
+ * Feature 2 (P2): User Order Volume
+ * Calculates the total quantity of shares ordered by each user,
+ * then answers interactive queries from standard input.
  */
 void showUserOrderVolume() {
     string filepath;
@@ -155,15 +174,10 @@ void showUserOrderVolume() {
 }
 
 /*
- * Feature 3: Live Trade Matching Engine
- * Accepts a stream of BUY/SELL orders and matches them using
- * price-priority. Executed trades are written to a CSV report.
- *
- * Matching Rules:
- *   - BUY  order matches lowest available SELL (ascending price)
- *   - SELL order matches highest available BUY (descending price)
- *   - Trade executes only when buy_price >= sell_price
- *   - Unmatched remainder stays in the book
+ * Feature 3 (P3): Live Trade Matching Engine
+ * Processes a continuous stream of orders dynamically using price-time priority. 
+ * Executed trades are logged to a specified CSV report. Unmatched remainders
+ * are stored in the order book.
  */
 void runMatchingEngine(const string& outputPath) {
     ofstream out(outputPath);
@@ -199,13 +213,15 @@ void runMatchingEngine(const string& outputPath) {
                 if (book.buyOrders[0].price < order.price) break;
 
                 int tradeQty = min(order.qty, book.buyOrders[0].qty);
+                
                 out << o.ticker << "," << order.user << ","
                     << book.buyOrders[0].user << "," << tradeQty << ","
                     << fixed << setprecision(2) << order.price << ","
                     << timestamp++ << "\n";
 
-                order.qty              -= tradeQty;
-                book.buyOrders[0].qty  -= tradeQty;
+                order.qty             -= tradeQty;
+                book.buyOrders[0].qty -= tradeQty;
+                
                 if (book.buyOrders[0].qty == 0)
                     book.buyOrders.erase(book.buyOrders.begin());
             }
@@ -219,6 +235,7 @@ void runMatchingEngine(const string& outputPath) {
                 if (book.sellOrders[0].price > order.price) break;
 
                 int tradeQty = min(order.qty, book.sellOrders[0].qty);
+                
                 out << o.ticker << "," << book.sellOrders[0].user << ","
                     << order.user << "," << tradeQty << ","
                     << fixed << setprecision(2) << book.sellOrders[0].price << ","
@@ -226,6 +243,7 @@ void runMatchingEngine(const string& outputPath) {
 
                 order.qty               -= tradeQty;
                 book.sellOrders[0].qty  -= tradeQty;
+                
                 if (book.sellOrders[0].qty == 0)
                     book.sellOrders.erase(book.sellOrders.begin());
             }
@@ -250,7 +268,6 @@ int main() {
         showUserOrderVolume();
 
     } else if (mode == "P3") {
-        
         string fileName;
         cin >> fileName;
         cin.ignore(1000, '\n');
