@@ -1,7 +1,5 @@
 #include <bits/stdc++.h>
-
 using namespace std;
-
 // 1. Core Data Models
 enum class OrderType { BUY, SELL };
 
