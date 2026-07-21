@@ -1,283 +1,193 @@
-/**
- * matching_engine.cpp
- * * A simple Order Book and Trade Matching Engine.
- * Supports reading order data, summarizing statistics, tracking user 
- * order volumes, and running a live trade matching engine based on 
- * price-time priority.
- */
-
 #include <bits/stdc++.h>
-#include <fstream>
+
 using namespace std;
 
-// ─── Data Structures ────────────────────────────────────────────────────────
+// 1. Core Data Models
+enum class OrderType { BUY, SELL };
 
 struct Order {
-    string user;
-    int qty;
-    double price;
-};
-
-/*
- * Represents an Order Book for a specific financial instrument (ticker),
- * maintaining separate lists for open BUY and SELL orders.
- */
-struct Book {
+    uint64_t orderId;
+    string traderName;
     string ticker;
-    vector<Order> buyOrders;
-    vector<Order> sellOrders;
-    Book(string t) : ticker(t) {}
-};
-
-// ─── Comparators ────────────────────────────────────────────────────────────
-
-// Sorts books by total order volume (descending), then by ticker (alphabetical)
-bool byTicker(Book& a, Book& b) {
-    if (a.ticker == b.ticker)
-        return (a.buyOrders.size() + a.sellOrders.size()) > 
-               (b.buyOrders.size() + b.sellOrders.size());
-    return a.ticker < b.ticker;
-}
-
-bool byPriceAsc(Order& a, Order& b)  { return a.price < b.price; }
-bool byPriceDesc(Order& a, Order& b) { return a.price > b.price; }
-
-// ─── File Parsing ───────────────────────────────────────────────────────────
-
-struct ParsedOrder {
-    string type, user, ticker;
-    int qty;
+    OrderType type;
+    int quantity;
     double price;
 };
 
-// Parses a comma-separated (CSV) string into a ParsedOrder object
-ParsedOrder parseCSVLine(const string& line) {
-    stringstream ss(line);
-    string type, user, ticker, qty_str, price_str;
-    getline(ss, type,      ',');
-    getline(ss, user,      ',');
-    getline(ss, ticker,    ',');
-    getline(ss, qty_str,   ',');
-    getline(ss, price_str);
-    return { type, user, ticker, stoi(qty_str), stod(price_str) };
-}
+struct Trade {
+    string ticker;
+    string sellerName;
+    string buyerName;
+    int quantity;
+    double price;
+    uint64_t timestamp;
+};
 
-// Parses a space-separated string into a ParsedOrder object
-ParsedOrder parseSpaceLine(const string& line) {
-    stringstream ss(line);
-    string type, user, ticker, qty_str, price_str;
-    getline(ss, type,      ' ');
-    getline(ss, user,      ' ');
-    getline(ss, ticker,    ' ');
-    getline(ss, qty_str,   ' ');
-    getline(ss, price_str);
-    return { type, user, ticker, stoi(qty_str), stod(price_str) };
-}
+// 2. Single Ticker Order Book 
+class OrderBook {
+private:
+    string ticker;
+    
+    // Bids (Buy orders): Sorted highest price first (greater)
+    // The queue maintains time-priority for orders at the exact same price.
+    map<double, queue<Order>, greater<double>> buySide;
+    
+    // Asks (Sell orders): Sorted lowest price first (default less)
+    map<double, queue<Order>> sellSide;
 
-// ─── Order Book Helpers ─────────────────────────────────────────────────────
+public:
+    explicit OrderBook(const string& symbol) : ticker(symbol) {}
 
-int findBook(vector<Book>& books, const string& ticker) {
-    for (int i = 0; i < (int)books.size(); i++)
-        if (books[i].ticker == ticker) return i;
-    return -1;
-}
-
-/*
- * Loads a static order book state from a given CSV file path,
- * categorizing orders into their respective BUY or SELL queues.
- */
-vector<Book> loadOrderBook(const string& filepath) {
-    ifstream infile(filepath);
-    if (!infile.is_open()) {
-        cerr << "[ERROR] Could not open file: " << filepath << endl;
-        return {};
-    }
-
-    vector<Book> books;
-    string line;
-    while (getline(infile, line)) {
-        if (line.empty()) break;
-        auto o = parseCSVLine(line);
-
-        int idx = findBook(books, o.ticker);
-        if (idx == -1) {
-            books.push_back(Book(o.ticker));
-            idx = books.size() - 1;
+    void addOrder(const Order& order, vector<Trade>& tradeLog, uint64_t& systemTime) {
+        if (order.type == OrderType::BUY) {
+            processBuyOrder(order, tradeLog, systemTime);
+        } else {
+            processSellOrder(order, tradeLog, systemTime);
         }
-
-        Order order = { o.user, o.qty, o.price };
-        if (o.type == "BUY")       books[idx].buyOrders.push_back(order);
-        else if (o.type == "SELL") books[idx].sellOrders.push_back(order);
-    }
-    return books;
-}
-
-// ─── Features ───────────────────────────────────────────────────────────────
-
-/*
- * Feature 1 (P1): Order Book Summary
- * Prints the total number of unique order entries for each ticker, 
- * sorted alphabetically.
- */
-void showOrderBookSummary() {
-    string filepath;
-    cin >> filepath;
-    cin.ignore(1000, '\n');
-
-    ifstream infile(filepath);
-    if (!infile.is_open()) {
-        cerr << "[ERROR] Could not open file: " << filepath << endl;
-        return;
     }
 
-    map<string, int> tickerCount;
-    string line;
-    while (getline(infile, line)) {
-        if (line.empty()) break;
-        auto o = parseCSVLine(line);
-        tickerCount[o.ticker]++;
-    }
+private:
+    void processBuyOrder(Order order, vector<Trade>& tradeLog, uint64_t& systemTime) {
+        // Match with existing Sell orders where Sell Price <= Buy Price
+        while (order.quantity > 0 && !sellSide.empty()) {
+            auto bestSellIt = sellSide.begin();
+            double bestSellPrice = bestSellIt->first;
 
-    for (auto& [ticker, count] : tickerCount)
-        cout << ticker << " " << count << "\n";
-}
-
-/*
- * Feature 2 (P2): User Order Volume
- * Calculates the total quantity of shares ordered by each user,
- * then answers interactive queries from standard input.
- */
-void showUserOrderVolume() {
-    string filepath;
-    cin >> filepath;
-    cin.ignore(1000, '\n');
-
-    ifstream infile(filepath);
-    if (!infile.is_open()) {
-        cerr << "[ERROR] Could not open file: " << filepath << endl;
-        return;
-    }
-
-    map<string, int> userQty;
-    string line;
-    while (getline(infile, line)) {
-        if (line.empty()) break;
-        auto o = parseCSVLine(line);
-        userQty[o.user] += o.qty;
-    }
-
-    string user;
-    while (cin >> user) {
-        if (user.empty()) break;
-        cout << user << " " << (userQty.count(user) ? userQty[user] : 0) << "\n";
-    }
-}
-
-/*
- * Feature 3 (P3): Live Trade Matching Engine
- * Processes a continuous stream of orders dynamically using price-time priority. 
- * Executed trades are logged to a specified CSV report. Unmatched remainders
- * are stored in the order book.
- */
-void runMatchingEngine(const string& outputPath) {
-    ofstream out(outputPath);
-    if (!out.is_open()) {
-        cerr << "[ERROR] Could not open output file: " << outputPath << endl;
-        return;
-    }
-
-    out << "Ticker,Seller,Buyer,Qty,Price,Time\n";
-
-    vector<Book> books;
-    int timestamp = 0;
-    string line;
-
-    while (getline(cin, line)) {
-        if (line.empty()) break;
-
-        auto o = parseSpaceLine(line);
-        Order order = { o.user, o.qty, o.price };
-
-        int idx = findBook(books, o.ticker);
-        if (idx == -1) {
-            books.push_back(Book(o.ticker));
-            idx = books.size() - 1;
-        }
-
-        Book& book = books[idx];
-
-        if (o.type == "SELL") {
-            sort(book.buyOrders.begin(), book.buyOrders.end(), byPriceDesc);
-
-            while (order.qty > 0 && !book.buyOrders.empty()) {
-                if (book.buyOrders[0].price < order.price) break;
-
-                int tradeQty = min(order.qty, book.buyOrders[0].qty);
-                
-                out << o.ticker << "," << order.user << ","
-                    << book.buyOrders[0].user << "," << tradeQty << ","
-                    << fixed << setprecision(2) << order.price << ","
-                    << timestamp++ << "\n";
-
-                order.qty             -= tradeQty;
-                book.buyOrders[0].qty -= tradeQty;
-                
-                if (book.buyOrders[0].qty == 0)
-                    book.buyOrders.erase(book.buyOrders.begin());
+            if (bestSellPrice > order.price) {
+                break; // No matching price found
             }
-            if (order.qty > 0) book.sellOrders.push_back(order);
+
+            queue<Order>& bestSellQueue = bestSellIt->second;
+            Order& restingSell = bestSellQueue.front();
+
+            int tradeQty = min(order.quantity, restingSell.quantity);
+            
+            // Execute trade at the resting seller's price
+            tradeLog.push_back({
+                ticker, 
+                restingSell.traderName, 
+                order.traderName, 
+                tradeQty, 
+                bestSellPrice, 
+                systemTime++
+            });
+
+            order.quantity -= tradeQty;
+            restingSell.quantity -= tradeQty;
+
+            if (restingSell.quantity == 0) {
+                bestSellQueue.pop();
+                if (bestSellQueue.empty()) {
+                    sellSide.erase(bestSellIt);
+                }
+            }
         }
 
-        else if (o.type == "BUY") {
-            sort(book.sellOrders.begin(), book.sellOrders.end(), byPriceAsc);
-
-            while (order.qty > 0 && !book.sellOrders.empty()) {
-                if (book.sellOrders[0].price > order.price) break;
-
-                int tradeQty = min(order.qty, book.sellOrders[0].qty);
-                
-                out << o.ticker << "," << book.sellOrders[0].user << ","
-                    << order.user << "," << tradeQty << ","
-                    << fixed << setprecision(2) << book.sellOrders[0].price << ","
-                    << timestamp++ << "\n";
-
-                order.qty               -= tradeQty;
-                book.sellOrders[0].qty  -= tradeQty;
-                
-                if (book.sellOrders[0].qty == 0)
-                    book.sellOrders.erase(book.sellOrders.begin());
-            }
-            if (order.qty > 0) book.buyOrders.push_back(order);
+        // Add remaining quantity to the order book
+        if (order.quantity > 0) {
+            buySide[order.price].push(order);
         }
     }
 
-    out.close();
-    cout << "[INFO] Trade report written to: " << outputPath << "\n";
-}
+    void processSellOrder(Order order, vector<Trade>& tradeLog, uint64_t& systemTime) {
+        // Match with existing Buy orders where Buy Price >= Sell Price
+        while (order.quantity > 0 && !buySide.empty()) {
+            auto bestBuyIt = buySide.begin();
+            double bestBuyPrice = bestBuyIt->first;
 
-// ─── Entry Point ─────────────────────────────────────────────────────────────
+            if (bestBuyPrice < order.price) {
+                break; // No matching price found
+            }
 
+            queue<Order>& bestBuyQueue = bestBuyIt->second;
+            Order& restingBuy = bestBuyQueue.front();
+
+            int tradeQty = min(order.quantity, restingBuy.quantity);
+            
+            // Execute trade at the resting buyer's price
+            tradeLog.push_back({
+                ticker, 
+                order.traderName, 
+                restingBuy.traderName, 
+                tradeQty, 
+                bestBuyPrice, 
+                systemTime++
+            });
+
+            order.quantity -= tradeQty;
+            restingBuy.quantity -= tradeQty;
+
+            if (restingBuy.quantity == 0) {
+                bestBuyQueue.pop();
+                if (bestBuyQueue.empty()) {
+                    buySide.erase(bestBuyIt);
+                }
+            }
+        }
+
+        // Add remaining quantity to the order book
+        if (order.quantity > 0) {
+            sellSide[order.price].push(order);
+        }
+    }
+};
+
+// 3. Central Matching Engine
+class MatchingEngine {
+private:
+    unordered_map<string, OrderBook> orderBooks;
+    vector<Trade> tradeLog;
+    uint64_t systemTime = 0;
+    uint64_t orderCounter = 0;
+
+public:
+    void submitOrder(const string& typeStr, const string& trader, 
+                     const string& ticker, int qty, double price) {
+        
+        OrderType type = (typeStr == "BUY") ? OrderType::BUY : OrderType::SELL;
+        Order newOrder = {++orderCounter, trader, ticker, type, qty, price};
+
+        // Initialize order book for ticker if it doesn't exist
+        if (orderBooks.find(ticker) == orderBooks.end()) {
+            orderBooks.emplace(ticker, OrderBook(ticker));
+        }
+
+        orderBooks.at(ticker).addOrder(newOrder, tradeLog, systemTime);
+    }
+
+    void exportTradesToCSV(const string& filepath) const {
+        ofstream out(filepath);
+        if (!out.is_open()) {
+            cerr << "Error: Could not open output file: " << filepath << "\n";
+            return;
+        }
+
+        out << "Ticker,Seller,Buyer,Qty,Price,Time\n";
+        for (const auto& trade : tradeLog) {
+            out << trade.ticker << ","
+                << trade.sellerName << ","
+                << trade.buyerName << ","
+                << trade.quantity << ","
+                << fixed << setprecision(2) << trade.price << ","
+                << trade.timestamp << "\n";
+        }
+        out.close();
+        cout << "Successfully exported " << tradeLog.size() << " trades to " << filepath << "\n";
+    }
+};
+
+// 4. Client / Application Layer
 int main() {
-    string mode;
-    cin >> mode;
+    MatchingEngine exchange;
 
-    if (mode == "P1") {
-        showOrderBookSummary();
+    cout << "Starting Matching Engine Simulation...\n";
+    
+    exchange.submitOrder("BUY", "Rajesh", "INFY", 100, 2450.00);
+    exchange.submitOrder("SELL", "Priya", "INFY", 60, 2440.00);
+    exchange.submitOrder("BUY", "Arjun", "TCS", 50, 3100.00);
+    exchange.submitOrder("SELL", "Divya", "TCS", 50, 3090.00);
 
-    } else if (mode == "P2") {
-        showUserOrderVolume();
-
-    } else if (mode == "P3") {
-        string fileName;
-        cin >> fileName;
-        cin.ignore(1000, '\n');
-
-        string outputPath = fileName;
-        runMatchingEngine(outputPath);
-
-    } else {
-        cerr << "[ERROR] Unknown mode: " << mode << ". Use P1, P2, or P3.\n";
-    }
+    exchange.exportTradesToCSV("executed_trades.csv");
 
     return 0;
 }
