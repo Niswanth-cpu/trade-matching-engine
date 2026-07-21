@@ -40,6 +40,7 @@ SELL,Bob,AAPL,5,148.00
 
 ### Part 3 — stdin (space-separated)
 BUY Alice AAPL 10 150.00
+
 SELL Bob AAPL 5 148.00
 
 ## Output Format
