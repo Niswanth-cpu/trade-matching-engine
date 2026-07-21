@@ -6,7 +6,7 @@ using namespace std;
 enum class OrderType { BUY, SELL };
 
 struct Order {
-    uint64_t orderId;
+    long long orderId;
     string traderName;
     string ticker;
     OrderType type;
@@ -20,7 +20,7 @@ struct Trade {
     string buyerName;
     int quantity;
     double price;
-    uint64_t timestamp;
+    long long timestamp;
 };
 
 // 2. Single Ticker Order Book 
@@ -29,16 +29,15 @@ private:
     string ticker;
     
     // Bids (Buy orders): Sorted highest price first (greater)
-    // The queue maintains time-priority for orders at the exact same price.
     map<double, queue<Order>, greater<double>> buySide;
     
     // Asks (Sell orders): Sorted lowest price first (default less)
     map<double, queue<Order>> sellSide;
 
 public:
-    explicit OrderBook(const string& symbol) : ticker(symbol) {}
+    OrderBook(string symbol) : ticker(symbol) {}
 
-    void addOrder(const Order& order, vector<Trade>& tradeLog, uint64_t& systemTime) {
+    void addOrder(Order order, vector<Trade>& tradeLog, long long& systemTime) {
         if (order.type == OrderType::BUY) {
             processBuyOrder(order, tradeLog, systemTime);
         } else {
@@ -47,7 +46,7 @@ public:
     }
 
 private:
-    void processBuyOrder(Order order, vector<Trade>& tradeLog, uint64_t& systemTime) {
+    void processBuyOrder(Order order, vector<Trade>& tradeLog, long long& systemTime) {
         // Match with existing Sell orders where Sell Price <= Buy Price
         while (order.quantity > 0 && !sellSide.empty()) {
             auto bestSellIt = sellSide.begin();
@@ -89,7 +88,7 @@ private:
         }
     }
 
-    void processSellOrder(Order order, vector<Trade>& tradeLog, uint64_t& systemTime) {
+    void processSellOrder(Order order, vector<Trade>& tradeLog, long long& systemTime) {
         // Match with existing Buy orders where Buy Price >= Sell Price
         while (order.quantity > 0 && !buySide.empty()) {
             auto bestBuyIt = buySide.begin();
@@ -137,12 +136,11 @@ class MatchingEngine {
 private:
     unordered_map<string, OrderBook> orderBooks;
     vector<Trade> tradeLog;
-    uint64_t systemTime = 0;
-    uint64_t orderCounter = 0;
+    long long systemTime = 0;
+    long long orderCounter = 0;
 
 public:
-    void submitOrder(const string& typeStr, const string& trader, 
-                     const string& ticker, int qty, double price) {
+    void submitOrder(string typeStr, string trader, string ticker, int qty, double price) {
         
         OrderType type = (typeStr == "BUY") ? OrderType::BUY : OrderType::SELL;
         Order newOrder = {++orderCounter, trader, ticker, type, qty, price};
@@ -155,15 +153,15 @@ public:
         orderBooks.at(ticker).addOrder(newOrder, tradeLog, systemTime);
     }
 
-    void exportTradesToCSV(const string& filepath) const {
+    void exportTradesToCSV(string filepath) {
         ofstream out(filepath);
         if (!out.is_open()) {
-            cerr << "Error: Could not open output file: " << filepath << "\n";
+            cout << "Error: Could not open output file: " << filepath << "\n";
             return;
         }
 
         out << "Ticker,Seller,Buyer,Qty,Price,Time\n";
-        for (const auto& trade : tradeLog) {
+        for (auto& trade : tradeLog) {
             out << trade.ticker << ","
                 << trade.sellerName << ","
                 << trade.buyerName << ","
