@@ -35,6 +35,7 @@ This system processes BUY and SELL orders for multiple stock tickers, matches co
 TYPE,USERNAME,TICKER,QUANTITY,PRICE
 
 BUY,Alice,AAPL,10,150.00
+
 SELL,Bob,AAPL,5,148.00
 
 ### Part 3 — stdin (space-separated)
