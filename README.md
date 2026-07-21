@@ -1,78 +1,30 @@
-# Order Book Matching Engine
+# C++ High-Frequency Order Book Matching Engine
 
-A console-based C++ application simulating a stock exchange order book system with trade matching, order tracking, and CSV report generation.
+A low-latency, modular order book matching engine simulating a financial exchange. It processes incoming limit orders, executes trades using strict **Price-Time Priority**, and logs completed transactions.
 
----
+## ⚙️ Architecture & Core Logic
 
-## Overview
+To optimize for high-frequency trading constraints, the core logic avoids naive $O(N \log N)$ sorting per order. Instead, it maintains a continuous state using specialized standard template library (STL) containers:
 
-This system processes BUY and SELL orders for multiple stock tickers, matches compatible trades using price-priority logic, and outputs trade execution reports. Built as a lab assignment demonstrating file handling, STL containers, and order matching algorithms.
+* **Price Priority (`std::map`)**: Bids are sorted in descending order (`std::greater<double>`) and asks are sorted in ascending order. This ensures $O(\log U)$ insertion time (where $U$ is the number of unique price levels), allowing instantaneous access to the best available market price.
+* **Time Priority (`std::queue`)**: Orders placed at the exact same price level are queued. This ensures absolute $O(1)$ time-priority execution without requiring timestamp sorting or complex struct comparisons.
+* **Exchange Routing (`std::unordered_map`)**: The central engine routes incoming orders to their specific ticker's order book in $O(1)$ time using a hash map.
 
----
+## 🚀 Build and Run Instructions
 
-## Features
+This project is contained in a single, easy-to-compile C++ file.
 
-- **Part 1 — Order Book Summary**: Reads orders from a CSV file and outputs the number of orders per ticker, sorted alphabetically.
-- **Part 2 — User Order Totals**: Aggregates total quantity ordered per user across all orders.
-- **Part 3 — Trade Matching Engine**: Matches BUY and SELL orders in real-time using price-priority, outputs executed trades to a CSV file.
+### Prerequisites
+* A C++ compiler (GCC/g++, Clang, etc.)
 
----
+### Build & Execution
+```bash
+# Clone the repository
+git clone [https://github.com/YourUsername/matching-engine.git](https://github.com/YourUsername/matching-engine.git)
+cd matching-engine
 
-## How It Works
+# Compile the code
+g++ main.cpp -o matching_engine -std=c++17
 
-### Trade Matching Logic (Part 3)
-- A **SELL** order matches against the highest-priced BUY orders first (descending price).
-- A **BUY** order matches against the lowest-priced SELL orders first (ascending price).
-- A trade executes only when `buy_price >= sell_price`.
-- Unmatched remainder stays in the order book for future matching.
-- Each trade is timestamped incrementally.
-
----
-
-## Input Format
-
-### Part 1 & 2 — CSV File
-TYPE,USERNAME,TICKER,QUANTITY,PRICE
-
-BUY,Alice,AAPL,10,150.00
-
-SELL,Bob,AAPL,5,148.00
-
-### Part 3 — stdin (space-separated)
-BUY Alice AAPL 10 150.00
-
-SELL Bob AAPL 5 148.00
-
-## Output Format
-
-### Part 1
-AAPL 3
-GOOG 2
-
-### Part 2
-Alice 20
-Bob 15
-
-### Part 3 — CSV written to `./actual_output/Q1/CSV/<ROLL_NUMBER>/<filename>`
-Ticker,Seller,Buyer,Qty,Price,Time
-AAPL,Bob,Alice,5,148.00,0
-
-## Tech Stack
-
-- **C++17**
-- **STL** — `vector`, `map`, `sort`
-- **File Handling** — `ifstream`, `ofstream`
-- **String Parsing** — `stringstream`, `getline`
-.
-├── main.cpp
-├── README.md
-└── actual_output/
-└── Q1/
-└── CSV/
-└── <ROLL_NUMBER>/
-
----
-
-## Author
-
-**Niswanth** — IIT Madras, CS24B044
+# Run the simulation
+./matching_engine
